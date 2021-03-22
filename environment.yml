@@ -1,7 +1,7 @@
 channels:
   - conda-forge
 dependencies:
-  - r-base=4.0.3
+  - r-base=3.6
   - r-tidyverse
   - r-essentials
   - r-lubridate
@@ -14,3 +14,8 @@ dependencies:
   - r-mapproj
   - r-reshape2
   - r-threejs
+  - r-leaflet
+  - r-leaflet.extras
+  - r-tilegramsr
+  - r-colormap
+  - r-openintro
