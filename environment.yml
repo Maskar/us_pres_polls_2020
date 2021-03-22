@@ -1,9 +1,9 @@
 channels:
-  - conda-forge
+#  - conda-forge
   - r
-  - f30a78ec8
+#  - f30a78ec8
 dependencies:
-  - r-base=3.5
+  - r-base=3.6
   - r-tidyverse
   - r-essentials
   - r-lubridate
@@ -19,5 +19,5 @@ dependencies:
   - r-leaflet
   - r-leaflet.extras
   - r-tilegramsr
-  - r-colormap
   - r-openintro
+#  - r-colormap
