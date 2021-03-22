@@ -4,3 +4,11 @@ dependencies:
   - r-base=3.6
   - r-tidyverse
   - r-essentials
+  - r-lubridate
+  - r-scales
+  - r-flexdashboard
+  - r-shiny
+  - r-geofacet
+  - r-ggpubr
+  - r-ggtimeseries
+  - r-tidyquant
