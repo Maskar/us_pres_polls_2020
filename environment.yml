@@ -10,5 +10,4 @@ dependencies:
   - r-shiny
   - r-geofacet
   - r-ggpubr
-  - r-ggtimeseries
   - r-tidyquant
