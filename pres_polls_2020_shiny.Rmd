@@ -1,0 +1,358 @@
+---
+title: "Presidential Race"
+output: 
+  flexdashboard::flex_dashboard:
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+library(flexdashboard)
+library(shiny)
+library(lubridate)
+library(tidyverse)
+library(geofacet)
+library(ggplot2)
+library(scales)
+
+#library(ggpubr)
+#library(ggTimeSeries)
+#library(tidyquant)
+
+# Set global theme
+theme_set(theme_minimal())
+#theme_set(theme_gray())
+theme_update(
+    title = element_text(size = 20),
+    text = element_text(size = 14),
+    legend.position = "top",
+    legend.justification = "right",
+    legend.margin = margin(-1.5, unit = "lines"),
+    legend.background = element_rect(fill = rgb(0,0,0, 0)),
+    plot.margin = margin(.5,1,.5,1, unit = "lines"),
+    plot.title.position = "plot",
+    panel.border = element_rect(color = "lightgrey", fill = NA),
+    panel.grid = element_blank(),
+    #strip.background = element_blank(),
+    strip.text = element_text(size = 14),
+    #axis.ticks.y = element_blank()
+)
+
+electoral_votes <- read.csv("electoral_votes_2020_data.csv", stringsAsFactors = T, na.strings = "")
+electoral_votes <- electoral_votes %>% add_row(State = "District of Columbia", electoralVotesNumber = 3, Pop = 0)
+```
+
+```{r P2020}
+president_polls_all <- read.csv("https://projects.fivethirtyeight.com/polls-page/president_polls.csv", stringsAsFactors = T, na.strings = "")
+president_polls <- president_polls_all %>%
+    mutate(created_at =  date(mdy_hm(created_at))) %>%
+    mutate_at(vars(state), ~fct_collapse(., Nebraska = c("Nebraska","Nebraska CD-1","Nebraska CD-2","Nebraska CD-3"), Maine = c("Maine","Maine CD-1","Maine CD-2","Maine CD-3"))) %>%
+    filter(
+        sample_size > 0 &
+            answer %in% c("Trump","Biden") &
+            created_at >= "2020-01-01"
+    ) %>%
+    select(
+        Poll_Date = created_at,
+        State = state,
+        answer,
+        pct
+    ) %>%
+    pivot_wider(names_from = answer, values_from = pct, values_fn = list(pct = ~floor(mean(.)))) %>%
+    mutate_at(vars(State), ~fct_explicit_na(.,"** National **")) %>%
+    drop_na() %>%
+    mutate(Other = 100 - (Biden+Trump)) %>%
+    group_by(State) %>%
+    mutate(Majority_Avg = ifelse(mean(Biden,na.rm = T)-mean(Trump,na.rm = T)>0,"Biden","Trump")) %>%
+    ungroup() %>%
+    pivot_longer(col = c(Biden, Trump, Other),names_to = "Candidate", values_to = "Support_pct") %>%
+    mutate_at(vars(Candidate,Majority_Avg), factor) %>%
+    mutate(Support_pct = Support_pct/100) %>%
+    merge(electoral_votes, by = "State", all.x = T) %>%
+    mutate(wt = round(rescale((electoralVotesNumber), to = c(.1,15)),2)) %>%
+    filter()
+```
+
+```{r P2016}
+president_polls_all_2016 <- read.csv("http://projects.fivethirtyeight.com/general-model/president_general_polls_2016.csv", stringsAsFactors = T, na.strings = "")
+
+president_polls_2016 <- president_polls_all_2016 %>%
+  drop_na(any_of(c("adjpoll_clinton","adjpoll_trump"))) %>%
+  mutate(createddate =  date(mdy(createddate))) %>%
+  mutate_at(vars(state), ~fct_collapse(., Nebraska = c("Nebraska","Nebraska CD-1","Nebraska CD-2","Nebraska CD-3"), Maine = c("Maine","Maine CD-1","Maine CD-2","Maine CD-3"))) %>%
+  filter(
+    samplesize > 0 &
+      createddate >= "2016-01-01"
+  ) %>%
+  select(
+    Poll_Date = createddate,
+    State = state,
+    Clinton = adjpoll_clinton,
+    Trump = adjpoll_trump
+  ) %>%
+  #mutate_at(vars(State), ~fct_explicit_na(.,"** National **")) %>%
+  mutate_at(vars(State), ~plyr::revalue(.,c("U.S." = "** National **"))) %>%
+  mutate_at(vars(Clinton,Trump), floor) %>%
+  drop_na() %>%
+  group_by(Poll_Date,State) %>%
+  summarise(Clinton = mean(Clinton),Trump = mean(Trump)) %>%
+  ungroup() %>%
+  mutate(Other = 100 - (Clinton+Trump)) %>%
+  group_by(State) %>%
+  mutate(Majority_Avg = ifelse(mean(Clinton,na.rm = T)-mean(Trump,na.rm = T)>0,"Clinton","Trump")) %>%
+  ungroup() %>%
+  pivot_longer(col = c(Clinton, Trump, Other),names_to = "Candidate", values_to = "Support_pct") %>%
+  mutate_at(vars(Candidate,Majority_Avg), factor) %>%
+  mutate(Support_pct = Support_pct/100) %>%
+  merge(electoral_votes, by = "State", all.x = T) %>%
+  mutate(wt = round(rescale((electoralVotesNumber), to = c(.1,15)),2)) %>%
+  filter()
+```
+
+
+Biden vs. Trump (2020) {data-orientation=cols}
+=====================================
+
+Col {data-width=200}
+-----------------------------------------------------------------------
+
+### Start Date: yyyy-mm-dd {data-height=35}
+
+```{r}
+  dateInput('date2020',
+            label = NULL,##Start Date: yyyy-mm-dd',
+            value = "2020-01-01"
+  )
+```
+
+### National Polls
+
+```{r}
+renderPlot({
+        president_polls %>%
+            filter(Poll_Date >= input$date2020) %>%
+            filter(State == "** National **" & Candidate != "Other") %>%
+            #filter(State == "** National **") %>%
+            ggplot(aes(x = Poll_Date, y = Support_pct, col=Candidate, fill=Candidate)) +
+            geom_hline(aes(yintercept=.5), col="grey", alpha=.5, size=1) +
+            #geom_hline(aes(yintercept=.4), col="grey", alpha=.5, size=1) +
+            geom_point(size=3, alpha=.4) +
+            geom_smooth(span=.3, se=T, size=3, method = "loess", alpha = .1, level = .99) +
+            #geom_col() +
+            scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+            scale_y_continuous(breaks = c(.4, .5, .6), labels = percent, limits = c(.25,.75), sec.axis = dup_axis()) +
+            scale_color_manual(
+                values = alpha(c("Trump"="red","Biden"="blue","Other"="white"),.7),
+                aesthetics = c("colour","fill")
+                ) +
+            labs(x=NULL, y=NULL
+                 #caption = paste("Latest Poll Date:",max(president_polls$Poll_Date)),
+                 #title = "National Polls"
+                 ) +
+            theme(
+                legend.position = "none",
+                panel.background = element_rect(fill = alpha("grey",.2))
+            )
+    },
+    res = 40,
+    height = 200
+    )
+```
+
+Col {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### State Polls
+
+```{r}
+renderPlot({
+        president_polls %>%
+            filter(Poll_Date >= input$date2020) %>%
+            filter(State != "** National **" & Candidate != "Other") %>%
+            ggplot(aes(x = Poll_Date, y = Support_pct, col=Candidate, fill=Candidate)) +
+            geom_hline(aes(yintercept=.5, col=Majority_Avg, alpha=log(wt/10)), size=200) + #alpha=.2
+            geom_hline(aes(yintercept=.5), col="white", alpha=.5, size=1) +
+            #geom_point(aes(size=wt/4), alpha=.4) +
+            geom_smooth(aes(size=wt/2),span=.8, se=F, method = "lm") +
+            geom_point(size=2, alpha=.4) +
+            #geom_smooth(span=.8, se=F, size=15, method = "lm") +
+            geom_text(
+                aes(x=min(Poll_Date), label=electoralVotesNumber),
+                y=.72,
+                fill=alpha("white",0),
+                color="#666666",
+                cex=5,
+                hjust=.25
+                ) +
+            facet_geo(~ State, grid = "us_state_grid2", label = "name", scales = "fixed") +
+            scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+            scale_y_continuous(breaks = c(.4, .5, .6), labels = percent, limits = c(.25,.75)) +
+            scale_color_manual(
+                values = alpha(c("Trump"="red","Biden"="blue","Other"="white"),.7),
+                aesthetics = c("colour","fill")
+                ) +
+            scale_alpha(
+                range = c(.1,.5)
+            ) +
+            labs(x=NULL, y=NULL,
+                 #title = "State Polls",
+                 caption = paste("Latest Poll Date:",max(president_polls$Poll_Date))
+                 ) +
+            theme(
+                legend.position = "none",
+                panel.background = element_rect(fill = alpha("grey",.2))
+            )
+    },
+    res = 45
+    )
+```
+
+### State Polls (B)
+
+```{r}
+renderPlot({
+president_polls %>%
+  filter(Poll_Date >= input$date2020) %>%
+  filter(State != "** National **") %>%
+  ggplot(aes(x = Poll_Date, y = Support_pct, col=Candidate, fill=Candidate)) +
+  geom_hline(aes(yintercept=.5, col=Majority_Avg, alpha=log(wt/10)), size=200) + #alpha=.2
+  geom_area(ymin = .4) +
+  facet_geo(~ State, grid = "us_state_grid2", label = "name", scales = "free_x") +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(.5), labels = percent) +
+  scale_color_manual(values = alpha(c("Trump"="red","Biden"="blue","Other"="white"),1), aesthetics = c("colour","fill")) +
+  labs(x=NULL, y=NULL, caption = paste("Latest Poll Date:",max(president_polls$Poll_Date))) +
+  theme(
+    legend.position = "none",
+    panel.background = element_rect(fill = alpha("grey",.2))
+    )
+    },
+    res = 45
+    )
+```
+
+
+Clinton vs. Trump (2016) {data-orientation=cols}
+=====================================
+
+Col {data-width=200}
+-----------------------------------------------------------------------
+
+### Start Date: yyyy-mm-dd {data-height=35}
+
+```{r}
+  dateInput('date2016',
+            label = NULL,##Start Date: yyyy-mm-dd',
+            value = "2016-01-01"
+  )
+```
+
+### National Polls
+
+```{r}
+renderPlot({
+        president_polls_2016 %>%
+            filter(Poll_Date >= input$date2016) %>%
+            filter(State == "** National **" & Candidate != "Other") %>%
+            #filter(State == "** National **") %>%
+            ggplot(aes(x = Poll_Date, y = Support_pct, col=Candidate, fill=Candidate)) +
+            geom_hline(aes(yintercept=.5), col="grey", alpha=.5, size=1) +
+            #geom_hline(aes(yintercept=.4), col="grey", alpha=.5, size=1) +
+            geom_point(size=3, alpha=.4) +
+            geom_smooth(span=.3, se=T, size=3, method = "loess", alpha = .1, level = .99) +
+            #geom_col() +
+            scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+            scale_y_continuous(breaks = c(.4, .5, .6), labels = percent, limits = c(.25,.75), sec.axis = dup_axis()) +
+            scale_color_manual(
+                values = alpha(c("Trump"="red","Clinton"="blue","Other"="white"),.7),
+                aesthetics = c("colour","fill")
+                ) +
+            labs(x=NULL, y=NULL
+                 #caption = paste("Latest Poll Date:",max(president_polls$Poll_Date)),
+                 #title = "National Polls"
+                 ) +
+            theme(
+                legend.position = "none",
+                panel.background = element_rect(fill = alpha("grey",.2))
+            )
+    },
+    res = 40,
+    height = 200
+    )
+```
+
+Col {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### State Polls
+
+```{r}
+renderPlot({
+        president_polls_2016 %>%
+            filter(Poll_Date >= input$date2016) %>%
+            filter(State != "** National **" & Candidate != "Other") %>%
+            ggplot(aes(x = Poll_Date, y = Support_pct, col=Candidate, fill=Candidate)) +
+            geom_hline(aes(yintercept=.5, col=Majority_Avg, alpha=log(wt/10)), size=200) + #alpha=.2
+            geom_hline(aes(yintercept=.5), col="white", alpha=.5, size=1) +
+            #geom_point(aes(size=wt/4), alpha=.4) +
+            geom_smooth(aes(size=wt/2),span=.8, se=F, method = "lm") +
+            geom_point(size=2, alpha=.4) +
+            #geom_smooth(span=.8, se=F, size=15, method = "lm") +
+            geom_text(
+                aes(x=min(Poll_Date), label=electoralVotesNumber),
+                y=.72,
+                fill=alpha("white",0),
+                color="#666666",
+                cex=5,
+                hjust=.25
+                ) +
+            facet_geo(~ State, grid = "us_state_grid2", label = "name", scales = "fixed") +
+            scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+            scale_y_continuous(breaks = c(.4, .5, .6), labels = percent, limits = c(.25,.75)) +
+            scale_color_manual(
+                values = alpha(c("Trump"="red","Clinton"="blue","Other"="white"),.7),
+                aesthetics = c("colour","fill")
+                ) +
+            scale_alpha(
+                range = c(.1,.5)
+            ) +
+            labs(x=NULL, y=NULL,
+                 #title = "State Polls",
+                 caption = paste("Latest Poll Date:",max(president_polls_2016$Poll_Date))
+                 ) +
+            theme(
+                legend.position = "none",
+                panel.background = element_rect(fill = alpha("grey",.2))
+            )
+    },
+    res = 45
+    )
+```
+
+### State Polls (B)
+
+```{r}
+renderPlot({
+president_polls_2016 %>%
+  filter(Poll_Date >= input$date2016) %>%
+  filter(State != "** National **") %>%
+  ggplot(aes(x = Poll_Date, y = Support_pct, col=Candidate, fill=Candidate)) +
+  geom_hline(aes(yintercept=.5, col=Majority_Avg, alpha=log(wt/10)), size=200) + #alpha=.2
+  geom_area(ymin = .4) +
+  facet_geo(~ State, grid = "us_state_grid2", label = "name", scales = "free_x") +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(.5), labels = percent) +
+  scale_color_manual(values = alpha(c("Trump"="red","Clinton"="blue","Other"="white"),1), aesthetics = c("colour","fill")) +
+  labs(x=NULL, y=NULL, caption = paste("Latest Poll Date:",max(president_polls_2016$Poll_Date))) +
+  theme(
+    legend.position = "none",
+    panel.background = element_rect(fill = alpha("grey",.2))
+    )
+    },
+    res = 45
+    )
+```
+
+
+
+

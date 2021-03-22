@@ -1,0 +1,638 @@
+---
+title: "DSC465 FinalProject"
+author: "Mourad Askar"
+date: "5/25/2020"
+output:
+  word_document: default
+  html_document: default
+subtitle: PD2
+---
+\newpage
+
+```{r setup, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	error = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	dpi = 200,
+	fig.width = 14,
+	fig.asp= .8,
+	cache = TRUE
+)
+```
+
+```{r init custom, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE, results='hide'}
+### Set scipen=999 to disable scientific notations
+options(max.print = 2000, scipen=0)
+
+#Load Libraries (Important: Keep the order to avoid conflicts)
+library(geofacet)
+library(ggpubr)
+library(scales)
+library(lubridate)
+library(tidyverse)
+library(ggTimeSeries)
+library(tidyquant)
+
+# Set global theme
+theme_set(theme_minimal())
+#theme_set(theme_gray())
+theme_update(
+  title = element_text(size = 20),
+  text = element_text(size = 14),
+  legend.position = "top",
+  legend.justification = "right",
+  legend.margin = margin(-1.5, unit = "lines"),
+  legend.background = element_rect(fill = rgb(0,0,0, 0)),
+  plot.margin = margin(.5,1,.5,1, unit = "lines"),
+  plot.title.position = "plot",
+  panel.border = element_rect(color = "lightgrey", fill = NA),
+  panel.grid = element_blank(),
+  #strip.background = element_blank(),
+  strip.text = element_text(size = 14),
+  #axis.ticks.y = element_blank()
+)
+
+#### Custom Functions ####
+
+# Function to Get column types
+data_types <- function(frame) {
+  res <- lapply(frame, class)
+  res_frame <- data.frame(class=factor(unlist(res)))
+  #plt <- barplot(table(res_frame), main="Data Types", col="steelblue", ylab="Number of Features")
+  return(res_frame)
+}
+
+# Function to Format numbers above 1000 with k scale
+ks <- function (x) {
+  ifelse(x >= 1000,
+         number_format(accuracy = 1,
+                       scale = 1/1000,
+                       suffix = "k",
+                       big.mark = ",")(x),
+         x)
+}
+
+
+
+```
+
+```{r webData, include=FALSE}
+president_polls_all <- read.csv("https://projects.fivethirtyeight.com/polls-page/president_polls.csv", stringsAsFactors = T, na.strings = "")
+
+#president_polls_all["state" %in% c("Nebraska CD-1","Nebraska CD-2","Nebraska CD-3")] <- "Nebraska"
+#president_polls_all["state" == "Nebraska CD-2"] <- "Nebraska"
+
+president_polls_all_2016 <- read.csv("http://projects.fivethirtyeight.com/general-model/president_general_polls_2016.csv", stringsAsFactors = T, na.strings = "")
+
+
+# KEY
+# A = ADULTS
+# RV = REGISTERED VOTERS
+# V = VOTERS
+# LV = LIKELY VOTERS
+
+```
+
+
+```{r P2020, include=FALSE}
+#dim(president_polls_all)
+
+(
+  president_polls <- president_polls_all %>%
+    select(
+      created_at,
+      question_id,
+      poll_id,
+      state,
+      pollster = display_name,
+      fte_grade,
+      sample_size,
+      population,
+      methodology,
+      #start_date,
+      #end_date,
+      #race_id,
+      answer,
+      pct
+    ) %>%
+    mutate(created_at =  date(mdy_hm(created_at))) %>%
+    mutate_at(vars(state), ~fct_collapse(., Nebraska = c("Nebraska","Nebraska CD-1","Nebraska CD-2","Nebraska CD-3"), Maine = c("Maine","Maine CD-1","Maine CD-2","Maine CD-3"))) %>%    filter(
+      sample_size > 0 &
+        #state != "" &
+        #population == "rv" &
+        #fte_grade %in% c("A","A-","A+","A/B") &
+        answer %in% c("Trump","Biden") &
+        created_at >= "2020-01-01"
+      ) %>%
+    #mutate(pollster = fct_lump_prop(pollster,.02)) %>%
+    pivot_wider(names_from = answer, values_from = pct, values_fn = list(pct = mean)) %>%
+    #mutate_at(vars(state), ~fct_lump_min(.,2)) %>%
+    #mutate_if(is.factor,fct_drop) %>%
+    mutate_at(vars(state), ~fct_explicit_na(.,"** US **")) %>%
+    #mutate_at(vars(state), ~fct_relabel(sort(levels(state),na.last = F))) %>%
+    #mutate_at(vars(state), ~fct_relevel(.,reorder(.))) %>%
+    #drop_na() %>%
+    filter()
+)%>%
+  summary()
+
+unique(president_polls$state)
+```
+
+```{r P2016, include=FALSE}
+(
+  president_polls_2016 <- president_polls_all_2016 %>%
+    #select(-c(question_id, url, notes, sponsor_ids)) %>%
+    select(
+      created_at = createddate,
+      question_id,
+      poll_id,
+      state,
+      pollster,
+      fte_grade = grade,
+      sample_size = samplesize,
+      population,
+      #methodology,
+      #start_date,
+      #end_date,
+      #race_id,
+      Clinton = adjpoll_clinton,
+      Trump = adjpoll_trump
+    ) %>%
+    mutate(created_at =  date(mdy(created_at))) %>%
+    mutate_at(vars(state), ~fct_collapse(., Nebraska = c("Nebraska","Nebraska CD-1","Nebraska CD-2","Nebraska CD-3"), Maine = c("Maine","Maine CD-1","Maine CD-2","Maine CD-3"))) %>%
+    filter(
+      sample_size > 0 &
+        #state != "" &
+        #population == "rv" &
+        #fte_grade %in% c("A","A-","A+","A/B") &
+        #answer %in% c("Clinton","Biden") &
+        created_at >= "2016-01-01"
+      ) %>%
+    #mutate(pollster = fct_lump_prop(pollster,.02)) %>%
+    #pivot_wider(names_from = answer, values_from = pct, values_fn = list(pct = mean)) %>%
+    #mutate_at(vars(state), ~fct_lump_min(.,2)) %>%
+    #mutate_if(is.factor,fct_drop) %>%
+    mutate_at(vars(state), ~plyr::revalue(.,c("U.S." = "** US **"))) %>%
+    #mutate_at(vars(state), ~fct_relabel(.,~sort(as.character(.)))) %>%
+    #drop_na() %>%
+    filter()
+)%>%
+  summary()
+```
+
+
+
+```{r EDA2020, echo=FALSE, fig.asp=1}
+pp2020N_fig <- president_polls %>%
+  select_if(is.numeric) %>%
+  select(-c(poll_id,question_id)) %>%
+  mutate_at(vars(sample_size),log10) %>%
+  rename("log10(sample_size)" = sample_size) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value)) +
+  #geom_histogram(bins = 30) +
+  geom_density() +
+  scale_y_continuous(label=ks, name = NULL) +
+  scale_x_continuous(label=ks, name = NULL) +
+  facet_wrap(~name, scales = 'free', ncol = 3) +
+  labs(x=NULL, y=NULL, title = "Biden vs. Trump (2020) - EDA")
+
+pp2020F_fig <- president_polls %>%
+  select_if(is.factor) %>%
+  mutate_all(~factor(., ordered = F)) %>%
+  mutate_all(fct_infreq) %>%
+  mutate_at(vars(pollster),~fct_lump_prop(.,.015,other_level = "...")) %>%
+  mutate_at(vars(state),~fct_lump_prop(.,.01,other_level = "...")) %>%
+  mutate_all(~fct_relevel(.,"...", after = Inf)) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value)) +
+  stat_count() +
+  scale_x_discrete(label=abbreviate, name = NULL) +
+  scale_y_continuous(label=ks, name = NULL) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~name, scales = 'free', ncol = 2)
+
+ggarrange(pp2020N_fig,pp2020F_fig,
+          ncol = 1, nrow = 2, heights = c(1.2, 3))
+```
+
+```{r EDA2016, echo=FALSE, fig.asp=.8}
+pp2016N_fig <- president_polls_2016 %>%
+  select_if(is.numeric) %>%
+  select(-c(poll_id,question_id)) %>%
+  mutate_at(vars(sample_size),log10) %>%
+  rename("log10(sample_size)" = sample_size) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value)) +
+  #geom_histogram(bins = 30) +
+  geom_density() +
+  scale_y_continuous(label=ks, name = NULL) +
+  scale_x_continuous(label=ks, name = NULL) +
+  facet_wrap(~name, scales = 'free', ncol = 3) +
+  labs(x=NULL, y=NULL, title = "Clinton vs. Trump (2016) - EDA")
+
+pp2016F_fig <- president_polls_2016 %>%
+  select_if(is.factor) %>%
+  mutate_all(~factor(., ordered = F)) %>%
+  mutate_all(fct_infreq) %>%
+  mutate_at(vars(pollster),~fct_lump_prop(.,.015,other_level = "...")) %>%
+  mutate_at(vars(state),~fct_lump_prop(.,.015,other_level = "...")) %>%
+  #mutate_all(~fct_relevel(.,"...", after = Inf)) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value)) +
+  stat_count() +
+  scale_x_discrete(label=abbreviate, name = NULL) +
+  scale_y_continuous(label=ks, name = NULL) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~name, scales = 'free', ncol = 2)
+
+ggarrange(pp2016N_fig,pp2016F_fig,
+          ncol = 1, nrow = 2, heights = c(1.2, 2))
+```
+
+
+
+```{r eval=FALSE, fig.asp=3/2, include=FALSE}
+#president_polls$state[president_polls$state == NA] <- "ALL"
+
+
+#table(president_polls$state[president_polls$state == ""])
+
+#m <- lm(data = president_polls, formula = Trump ~ state +  sample_size + population + created_at)
+#summary(m)
+#plot(president_polls$created_at, president_polls$Trump)
+#abline(m)
+#plot(m)
+
+
+
+#dim(president_polls)
+
+
+#length(unique(president_polls$poll_id))
+#length(unique(president_polls$state))
+#length(unique(president_polls$created_at))
+#length(unique(president_polls$pollster))
+#summary(unique(president_polls$methodology))
+
+#sort(president_polls$state)
+
+```
+
+
+```{r eval=FALSE, fig.asp=.4, include=FALSE}
+president_polls %>%
+  #arrange(state) %>%
+  filter(state == "** US **") %>%
+  rename(c(DEM = Biden, REP = Trump)) %>%
+  ggplot(aes(x = created_at)) +
+  geom_hline(aes(yintercept=50), col="grey") +
+  #geom_ma(aes(y = Biden), col="blue", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  #geom_ma(aes(y = Trump), col="red", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  geom_smooth(aes(y = DEM), col="blue", span=.8, se=F, size=2) +
+  geom_smooth(aes(y = REP), col="red", span=.8, se=F, size=2) +
+  geom_jitter(aes(y = DEM), col="blue", size=1, alpha=.3, width = 3) +
+  geom_jitter(aes(y = REP), col="red", size=1, alpha=.3, width = 3) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 60), labels = c("25%", "50%", "60%"), limits = c(25,60)) +
+  labs(x=NULL, y=NULL, title = "Biden vs. Trump (2020)")
+
+```
+
+```{r eval=FALSE, fig.asp=2/2, include=FALSE}
+president_polls %>%
+  #arrange(state) %>%
+  filter(state != "** US **") %>%
+  rename(c(DEM = Biden, REP = Trump)) %>%
+  ggplot(aes(x = created_at)) +
+  geom_hline(aes(yintercept=50), col="grey") +
+  #geom_ma(aes(y = Biden), col="blue", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  #geom_ma(aes(y = Trump), col="red", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  geom_smooth(aes(y = DEM), col="blue", span=.8, se=F, size=.5) +
+  geom_smooth(aes(y = REP), col="red", span=.8, se=F, size=.5) +
+  geom_point(aes(y = DEM), col="blue", size=1, alpha=.3) +
+  geom_point(aes(y = REP), col="red", size=1, alpha=.3) +
+  facet_wrap(~state, ncol = 6) +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 75), labels = c("25%", "50%", "75%")) +
+  labs(x=NULL, y=NULL, title = "Biden vs. Trump (2020)")
+
+```
+
+```{r eval=FALSE, fig.asp=.4, include=FALSE}
+president_polls_2016 %>%
+  #arrange(state) %>%
+  filter(state == "** US **") %>%
+  rename(c(DEM = Clinton, REP = Trump)) %>%
+  ggplot(aes(x = created_at)) +
+  geom_hline(aes(yintercept=50), col="grey") +
+  #geom_ma(aes(y = Biden), col="blue", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  #geom_ma(aes(y = Trump), col="red", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  geom_smooth(aes(y = DEM), col="blue", span=.8, se=F, size=2) +
+  geom_smooth(aes(y = REP), col="red", span=.8, se=F, size=2) +
+  geom_jitter(aes(y = DEM), col="blue", size=.5, alpha=.3, width = 3) +
+  geom_jitter(aes(y = REP), col="red", size=.5, alpha=.3, width = 3) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 60), labels = c("25%", "50%", "60%"), limits = c(25,60)) +
+  labs(x=NULL, y=NULL, title = "Clinton vs. Trump (2016)")
+
+```
+
+```{r eval=FALSE, fig.asp=4/3, include=FALSE}
+president_polls_2016 %>%
+  #arrange(state) %>%
+  filter(state != "** US **") %>%
+  rename(c(DEM = Clinton, REP = Trump)) %>%
+  ggplot(aes(x = created_at)) +
+  geom_hline(aes(yintercept=50), col="grey") +
+  #geom_ma(aes(y = Biden), col="blue", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  #geom_ma(aes(y = Trump), col="red", ma_fun = SMA, n = 3, linetype = "solid", na.rm = TRUE) +
+  geom_smooth(aes(y = DEM), col="blue", span=.8, se=F, size=.5) +
+  geom_smooth(aes(y = REP), col="red", span=.8, se=F, size=.5) +
+  geom_point(aes(y = DEM), col="blue", size=1, alpha=.1) +
+  geom_point(aes(y = REP), col="red", size=1, alpha=.1) +
+  facet_wrap(~state, ncol = 6) +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 75), labels = c("25%", "50%", "75%")) +
+  labs(x=NULL, y=NULL, title = "Clinton vs. Trump (2016)")
+
+```
+
+
+Utilizing cartogram with density plots, highlighting states' average candidate support by background color.
+
+```{r message=FALSE, warning=FALSE}
+president_polls %>%
+  #arrange(state) %>%
+  filter(state != "** US **") %>%
+  rename(c(DEM = Biden, REP = Trump)) %>%
+  group_by(state) %>%
+  #summarise(side = ifelse(mean(DEM,na.rm = T)-mean(REP,na.rm = T)>0,"red","blue")) %>%
+  mutate(side = ifelse(mean(REP,na.rm = T)-mean(DEM,na.rm = T)>0,"0","1")) %>%
+  ungroup() %>%
+  ggplot(aes(x = created_at, col=side, fill=side)) +
+  #geom_tile(aes(fill=side)) +
+  geom_hline(aes(yintercept=50, col=side), alpha=.3, size=100) +
+  geom_hline(aes(yintercept=50), col="grey", alpha=.5, size=1) +
+  #geom_smooth(aes(y = DEM), col="blue", span=.8, se=F, size=.5) +
+  #geom_smooth(aes(y = REP), col="red", span=.8, se=F, size=.5) +
+  #geom_ribbon(aes(y = 50, label = "state")) +
+  #geom_point(aes(y = DEM), col="blue", size=1, alpha=.3) +
+  #geom_point(aes(y = REP), col="red", size=1, alpha=.3) +
+  geom_density2d(aes(y = DEM), col="blue", alpha=.5) +
+  geom_density2d(aes(y = REP), col="red", alpha=.5) +
+  facet_geo(~ state, grid = "us_state_grid2", label = "name") +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 75), labels = c("25%", "50%", "75%")) +
+  scale_color_manual(values = c("0"="red","1"="blue")) +
+  labs(x=NULL, y=NULL, title = "Biden vs. Trump (2020)", subtitle = "Presidential Polls by State") +
+  theme(
+    legend.position = "none"
+  )
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+president_polls_2016 %>%
+  #arrange(state) %>%
+  filter(state != "** US **") %>%
+  rename(c(DEM = Clinton, REP = Trump)) %>%
+  group_by(state) %>%
+  #summarise(side = ifelse(mean(DEM,na.rm = T)-mean(REP,na.rm = T)>0,"red","blue")) %>%
+  mutate(side = ifelse(mean(REP,na.rm = T)-mean(DEM,na.rm = T)>0,"0","1")) %>%
+  ungroup() %>%
+  ggplot(aes(x = created_at, col=side, fill=side)) +
+  #geom_tile(aes(fill=side)) +
+  geom_hline(aes(yintercept=50, col=side), alpha=.3, size=100) +
+  geom_hline(aes(yintercept=50), col="grey", alpha=.5, size=1) +
+  #geom_smooth(aes(y = DEM), col="blue", span=.8, se=F, size=.5) +
+  #geom_smooth(aes(y = REP), col="red", span=.8, se=F, size=.5) +
+  #geom_ribbon(aes(y = 50, label = "state")) +
+  #geom_point(aes(y = DEM), col="blue", size=1, alpha=.3) +
+  #geom_point(aes(y = REP), col="red", size=1, alpha=.3) +
+  geom_density2d(aes(y = DEM), col="blue", size=1, alpha=.5) +
+  geom_density2d(aes(y = REP), col="red", size=1, alpha=.5) +
+  facet_geo(~ state, grid = "us_state_grid2", label = "name") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 75), labels = c("25%", "50%", "75%")) +
+  scale_color_manual(values = c("0"="red","1"="blue")) +
+  labs(x=NULL, y=NULL, title = "Clinton vs. Trump (2016)", subtitle = "Presidential Polls by State") +
+  theme(
+    legend.position = "none"
+  )
+
+
+```
+
+\newpage
+
+Utilizing cartogram with scatter / line plots, highlighting states' average candidate support by background color.
+
+```{r message=FALSE, warning=FALSE}
+president_polls %>%
+  #arrange(state) %>%
+  filter(state != "** US **") %>%
+  rename(c(DEM = Biden, REP = Trump)) %>%
+  group_by(state) %>%
+  #summarise(side = ifelse(mean(DEM,na.rm = T)-mean(REP,na.rm = T)>0,"red","blue")) %>%
+  mutate(side = ifelse(mean(REP,na.rm = T)-mean(DEM,na.rm = T)>0,"0","1")) %>%
+  ungroup() %>%
+  ggplot(aes(x = created_at, col=side, fill=side)) +
+  #geom_tile(aes(fill=side)) +
+  geom_hline(aes(yintercept=50, col=side), alpha=.3, size=100) +
+  geom_hline(aes(yintercept=50), col="grey", alpha=.5, size=1) +
+  geom_smooth(aes(y = DEM), col="blue", span=.4, se=F, size=.5) +
+  geom_smooth(aes(y = REP), col="red", span=.4, se=F, size=.5) +
+  #geom_ribbon(aes(y = 50, label = "state")) +
+  geom_point(aes(y = DEM), col="blue", size=1, alpha=.5) +
+  geom_point(aes(y = REP), col="red", size=1, alpha=.5) +
+  #geom_density2d(aes(y = DEM), col="blue", size=1, alpha=.5) +
+  #geom_density2d(aes(y = REP), col="red", size=1, alpha=.5) +
+  facet_geo(~ state, grid = "us_state_grid2", label = "name") +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 75), labels = c("25%", "50%", "75%")) +
+  scale_color_manual(values = c("0"="red","1"="blue")) +
+  labs(x=NULL, y=NULL, title = "Biden vs. Trump (2020)", subtitle = "Presidential Polls by State") +
+  theme(
+    legend.position = "none"
+    )
+
+```
+
+```{r message=FALSE, warning=FALSE, fig.asp=.6}
+president_polls_2016 %>%
+  #arrange(state) %>%
+  filter(state != "** US **") %>%
+  rename(c(DEM = Clinton, REP = Trump)) %>%
+  group_by(state) %>%
+  #summarise(side = ifelse(mean(DEM,na.rm = T)-mean(REP,na.rm = T)>0,"red","blue")) %>%
+  mutate(side = ifelse(mean(REP,na.rm = T)-mean(DEM,na.rm = T)>0,"0","1")) %>%
+  ungroup() %>%
+  ggplot(aes(x = created_at, col=side, fill=side)) +
+  #geom_tile(aes(fill=side)) +
+  geom_hline(aes(yintercept=50, col=side), alpha=.3, size=100) +
+  geom_hline(aes(yintercept=50), col="white", alpha=.5, size=1) +
+  geom_smooth(aes(y = DEM), col="blue", span=.4, se=F, size=1) +
+  geom_smooth(aes(y = REP), col="red", span=.4, se=F, size=1) +
+  #geom_ribbon(aes(y = 50, label = "state")) +
+  geom_point(aes(y = DEM), col="blue", size=1, alpha=.3) +
+  geom_point(aes(y = REP), col="red", size=1, alpha=.3) +
+  #geom_density2d(aes(y = DEM), col="blue", size=1, alpha=.5) +
+  #geom_density2d(aes(y = REP), col="red", size=1, alpha=.5) +
+  facet_geo(~ state, grid = "us_state_grid2", label = "name") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%b") +
+  scale_y_continuous(breaks = c(25, 50, 75), labels = c("25%", "50%", "75%")) +
+  scale_color_manual(values = c("0"="red","1"="blue")) +
+  labs(x=NULL, y=NULL, title = "Clinton vs. Trump (2016)", subtitle = "Presidential Polls by State") +
+  theme(
+    legend.position = "none"
+  )
+
+
+```
+
+
+
+\newpage
+
+Utilizing cloropleth to highlighting states' average candidate support by background color.
+
+```{r}
+library(mapproj) # Gives you alternatives to control the globe->lat/lon mapping
+library(reshape2)
+library(openintro)
+
+state_map = map_data("state")
+cnames <- aggregate(cbind(long, lat) ~ region, data=state_map, 
+                    FUN=function(x)mean(range(x)))
+```
+
+```{r}
+
+president_polls %>%
+  filter(state != "** US **") %>%
+  mutate(state = tolower(state)) %>%
+  rename(c(DEM = Biden, REP = Trump)) %>%
+  select(state,DEM,REP) %>%
+  group_by(state) %>%
+  mutate(side = ifelse(mean(REP,na.rm = T)-mean(DEM,na.rm = T)>0,"0","1")) %>%
+  ungroup() %>%
+  select(state,side) %>%
+  ggplot() +
+  labs(x=NULL, y=NULL, title = "Biden vs. Trump (2020)", subtitle = "Presidential Polls by State") +
+  geom_map(
+    aes(map_id = state, fill = side),
+    map = state_map,
+    color="black",
+    size=.5,
+    alpha = .3
+    ) +
+  geom_text(data = cnames, aes(long, lat, label = state2abbr(tools::toTitleCase(region))),position="dodge", size=6) +
+  #geom_label(aes(x = state_map$long, y = state_map$lat, label = state)) +
+  expand_limits(x = state_map$long, y = state_map$lat) +
+  scale_fill_manual(values = c("0"="red","1"="blue")) +
+  coord_map() +
+  theme(
+    text = element_text(size = 16),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "none"
+   ) 
+
+```
+
+```{r}
+
+
+president_polls_2016 %>%
+  filter(state != "** US **") %>%
+  mutate(state = tolower(state)) %>%
+  rename(c(DEM = Clinton, REP = Trump)) %>%
+  select(state,DEM,REP) %>%
+  group_by(state) %>%
+  mutate(side = ifelse(mean(REP,na.rm = T)-mean(DEM,na.rm = T)>0,"0","1")) %>%
+  ungroup() %>%
+  select(state,side) %>%
+  ggplot() +
+  labs(x=NULL, y=NULL, title = "Clinton vs. Trump (2016)", subtitle = "Presidential Polls by State") +
+  geom_map(
+    aes(map_id = state, fill = side),
+    map = state_map,
+    color="black",
+    size=.5,
+    alpha = .3
+    ) +
+  geom_text(data = cnames, aes(long, lat, label = state2abbr(tools::toTitleCase(region))),position="dodge", size=6) +
+  #geom_label(aes(x = state_map$long, y = state_map$lat, label = state)) +
+  expand_limits(x = state_map$long, y = state_map$lat) +
+  scale_fill_manual(values = c("0"="red","1"="blue")) +
+  coord_map() +
+  theme(
+    text = element_text(size = 16),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "none"
+   ) 
+
+```
+
+
+
+```{r}
+library(threejs)
+z <- seq(-10, 10, 0.01)
+x <- cos(z)
+y <- sin(z)
+scatterplot3js(x,y,z, color=rainbow(length(z)))
+```
+
+```{r}
+library(tilegramsR)
+library(leaflet)
+# devtools::install_github('bhaskarvk/leaflet.extras')
+library(leaflet.extras)
+
+getLeafletOptions <- function(minZoom, maxZoom, ...) {
+  leafletOptions(
+    crs = leafletCRS("L.CRS.Simple"),
+    minZoom = minZoom, maxZoom = maxZoom,
+    dragging = FALSE, zoomControl = FALSE,
+    tap = FALSE,
+    attributionControl = FALSE , ...)
+}
+
+getFactorPal <- function(f) {
+  colorFactor(colormap::colormap(
+    colormap = colormap::colormaps$hsv,
+    nshades = length(f)), f)
+}
+```
+
+```{r}
+leaflet(
+  options= getLeafletOptions(0.1, 0.1)) %>%
+  addPolygons(
+    data=sf_NPR.DemersCartogram, group = 'states',
+    weight=1,color='#000000', fillOpacity = 0.5, opacity=0.7,
+    fillColor= ~getFactorPal(id)(id),
+    highlightOptions = highlightOptions(weight = 3)) %>%
+  addLabelOnlyMarkers(
+    data=sf_NPR.DemersCartogram.centers,
+    label = ~as.character(id),
+    labelOptions = labelOptions(
+      noHide = 'T', textOnly = T, offset=c(-12,-15), textsize = '15px',
+      direction="auto")) %>%
+  setMapWidgetStyle()
+```
+
