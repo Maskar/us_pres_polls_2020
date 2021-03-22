@@ -13,4 +13,4 @@ dependencies:
   - r-tidyquant
   - r-mapproj
   - r-reshape2
-  - r-openintro
+  - r-threejs
